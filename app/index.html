@@ -34,7 +34,7 @@
             <i>(a + b)</i>
         </li>
     </ul>
-    <input type="text" name="regex" id="regex" />
+    <input type="text" name="regex" id="regex" value="a(a(ab)*)*c" />
     <button id="regex-button" onclick="loadRegex()">Load</button>
     <div>
         <h3>Alphabet:</h3>
@@ -46,32 +46,58 @@
 <script>
     var nodes, edges, network, alphabet;
     var statesMap = {};
+    var edgeMap = {};
     function loadRegex() {
         let reg = document.getElementById("regex").value;
         nodes.clear();
         edges.clear();
+        statesMap = {};
+        edgeMap = {};
+
         alphabet = getAlphabet(reg);
         document.getElementById("alphabet-container").innerHTML = alphabet.join(", ");
 
-        // Insert main node
-        nodes.add({
-            id: "q0",
-            label: "q0"
-        });
-        statesMap["q0"] = {};
+        if (balancedBrackets(reg)) {
+            // Insert main node
+            nodes.add({
+                id: "q0",
+                label: "q0"
+            });
+            statesMap["q0"] = {};
 
-        // Main branch tokens
-        let tokens = getTokens(reg);
-        tokens.forEach(function (token) {
-            var states = nodes.getIds();
-            var lastState = states[states.length - 1];
-            if (token[token.length - 1] != "*") {
-                insertState(lastState, getNextState(), token, true);
-            } else if(isFinalToken(token)){
-                insertState(lastState, lastState, token, true);
+            // Main branch tokens
+            let tokens = getTokens(reg);
+            var lastState = "q0";
+            tokens.forEach(function (token) {
+                var states = nodes.getIds();
+                var lastState = states[states.length - 1];
+                if (token[token.length - 1] != "*") {
+                    var nextState = getNextState();
+                    insertState(lastState, nextState, token, true);
+                    lastState = nextState;
+                } else {
+                    insertState(lastState, lastState, token, true);
+                }
+            });
+            analyzeEdges();
+        } else {
+            alert("Invalid regular expression");
+        }
+        console.log("Final Edge Map");
+        console.log(edgeMap);
+    }
+    function balancedBrackets(regex) {
+        counter = 0;
+        let charArray = Array.from(regex);
+        while (charArray.length > 0) {
+            var tempChar = charArray.shift();
+            if (tempChar == "(") {
+                counter++;
+            } else if (tempChar == ")") {
+                counter--;
             }
-        });
-        console.log(statesMap);
+        }
+        return counter == 0;
     }
     function getNextState() {
         var states = nodes.getIds();
@@ -169,19 +195,16 @@
                 id: from,
                 label: from
             });
-            statesMap[from] = {
-                
-            }
+            statesMap[from] = {};
         }
         if (!nodes.get(to)) {
             nodes.add({
                 id: to,
                 label: to
             });
-            statesMap[to] = {
-
-            }
+            statesMap[to] = {};
         }
+        label = (label[label.length - 1] == "*") ? label.slice(0, label.length - 1) : label;
         if (!addition || !edges.get(from + "-" + to)) {
             edges.add({
                 id: from + "-" + to,
@@ -197,11 +220,61 @@
                 label: edges.get(from + "-" + to).label + "," + label
             });
         }
-        statesMap[from][to] = {
-            reg: label,
-            state: statesMap[to]
-        }
-        //if(network) network.redraw();
+        edgeMap[from + "-" + to] = label;
+    }
+    function analyzeEdges() {
+        var fixArray = Object.keys(edgeMap).filter(function (key) {
+            return !isFinalToken(edgeMap[key]);
+        });
+        fixArray.forEach(function (key) {
+            var reg = edgeMap[key];
+            var from = key.split("-")[0];
+            var to = key.split("-")[1];
+
+            let problemEdgeLabels = edges.get(key).label.split(",");
+            var onlyOneLabel = problemEdgeLabels.length == 1;
+            if (onlyOneLabel) {
+                edges.remove({ id: key });
+            } else {
+                problemEdgeLabels.splice(problemEdgeLabels.indexOf(reg), 1);
+                var newLabel = problemEdgeLabels.join(',');
+                edges.update({
+                    id: key,
+                    label: newLabel
+                });
+                edgeMap[key] = newLabel;
+            }
+
+            // branch tokens
+            let tokens = getTokens(reg.slice(1, reg.length - 1));
+            var lastState = from;
+            tokens.forEach(function (token, index) {
+                var states = nodes.getIds();
+                if (token[token.length - 1] != "*") {
+                    var nextState = (index == tokens.length - 1) ? to : getNextState();
+                    insertState(lastState, nextState, token, true);
+                    lastState = nextState;
+                } else {
+                    insertState(lastState, lastState, token, true);
+                }
+            });
+
+            if (from != lastState) {
+                let nextEdges = edges.get({
+                    filter: function (edge) {
+                        return (edge.from == from && edge.to != lastState);
+                    }
+                });
+                nextEdges.forEach(function (edge, index) {
+                    insertState(lastState, edge.to, edge.label, true);
+                });
+            }
+            if (onlyOneLabel) {
+                delete edgeMap[key];
+
+            }
+        });
+        if (fixArray.length > 0) analyzeEdges();
     }
 </script>
 
